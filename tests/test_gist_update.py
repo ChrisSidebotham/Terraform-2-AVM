@@ -91,7 +91,7 @@ class GistTests(unittest.TestCase):
             self.latest = {**gist(), **value}
             with self.assertRaises(update.UpdateError):
                 update.download(get=self.get)
-        self.assertFalse(any("gist.githubusercontent.com" in url for url, _ in self.calls))
+        self.assertEqual({url for url, _ in self.calls}, {update.API})
 
     def test_only_literal_version_is_accepted_without_execution(self):
         for artifact in (b'__version__ = compute_version()', b'__version__ = "bad"',
