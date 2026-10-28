@@ -1,0 +1,16 @@
+{
+  "name": "avmigrate",
+  "version": "1.10.0",
+  "origin": "https://gist.github.com/ChrisSidebotham/0a3b2e9809a9831692c3bb2bff4c0a54",
+  "artifact_origin": "https://gist.githubusercontent.com/ChrisSidebotham/0a3b2e9809a9831692c3bb2bff4c0a54/raw/avmigrate.py",
+  "revision": "sha256:82fe2166af1c5d7c91c4211896b03f866e8854d77d77f5b94e71a10274265911",
+  "git_revision": null,
+  "git_revision_status": "Upstream history was unavailable during import; content-pinned distribution, not a verified upstream Git commit.",
+  "sha256": "82fe2166af1c5d7c91c4211896b03f866e8854d77d77f5b94e71a10274265911",
+  "catalogue_version": "2",
+  "catalogue_generated": "2026-09-07T08:53:47Z",
+  "built": "2026-09-07 09:16:17 UTC",
+  "author": "ChrisSidebotham",
+  "distribution": "Original single-file bundled Python artifact; original source tree and upstream tests are not included.",
+  "license_status": "No license notice found in the accessible gist README or artifact. Confirm upstream distribution permission; repository MIT license is not asserted over this artifact."
+}

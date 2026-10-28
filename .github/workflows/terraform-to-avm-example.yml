@@ -1,0 +1,48 @@
+name: Terraform to AVM manual example
+
+# This local example requires a private copy of the factory repository because
+# report artifacts contain sensitive source. External consumers should
+# replace the local uses value with
+# ChrisSidebotham/Terraform-2-AVM/.github/workflows/terraform-to-avm.yml@<SHA>
+# and pass that exact SHA as factory_ref (not the consumer's github.sha).
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: Repository-relative JSON configuration path
+        required: true
+        type: string
+      root:
+        description: Repository-relative Terraform root
+        required: true
+        type: string
+      mode:
+        description: Conversion mode
+        default: report
+        type: choice
+        options:
+          - report
+          - repair
+      publish:
+        description: Publish a draft repair pull request
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  convert:
+    # These are upper bounds for the reusable workflow's isolated publish job;
+    # its conversion job explicitly retains only contents: read.
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/terraform-to-avm.yml
+    with:
+      factory_ref: ${{ github.sha }}
+      config_path: ${{ inputs.config_path }}
+      root: ${{ inputs.root }}
+      base_branch: ${{ github.ref_name }}
+      mode: ${{ inputs.mode }}
+      publish: ${{ inputs.publish }}

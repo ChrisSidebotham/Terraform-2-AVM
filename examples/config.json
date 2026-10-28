@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "allow": ["azurerm_resource_group"],
+  "exclude": [],
+  "include_heuristic": false,
+  "bump_providers": false,
+  "timeout_seconds": 300
+}

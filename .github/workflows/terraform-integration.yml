@@ -1,0 +1,34 @@
+name: Terraform integration (network opt-in)
+
+# Explicitly manual: installs Terraform and downloads public providers/modules.
+# Never apply, request cloud credentials, or connect to a remote state backend.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      - name: Run opt-in Terraform integration tests
+        env:
+          TERRAFORM_TO_AVM_INTEGRATION: '1'
+          TF_IN_AUTOMATION: 'true'
+          CHECKPOINT_DISABLE: '1'
+        run: python -m unittest discover -s tests -p 'test_integration*.py' -v
