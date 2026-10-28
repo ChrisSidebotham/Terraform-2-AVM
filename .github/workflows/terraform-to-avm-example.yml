@@ -1,7 +1,7 @@
 name: Terraform to AVM manual example
 
-# This local example requires a private copy of the factory repository because
-# report artifacts contain sensitive source. External consumers should
+# This local example targets the canonical factory repository when private;
+# report artifacts contain sensitive source. Private external consumers should
 # replace the local uses value with
 # ChrisSidebotham/Terraform-2-AVM/.github/workflows/terraform-to-avm.yml@<SHA>
 # and pass that exact SHA as factory_ref (not the consumer's github.sha).
@@ -38,6 +38,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: read
     uses: ./.github/workflows/terraform-to-avm.yml
     with:
       factory_ref: ${{ github.sha }}

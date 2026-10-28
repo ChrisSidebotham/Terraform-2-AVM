@@ -111,6 +111,9 @@ avmigrate is the first named fixer behind a small adapter, not a plugin framewor
 3. **Apply targeted fixes:** runs `avmigrate apply` in isolation, using allow/exclude
    filters. Only selected-root `.tf`, `.terraform.lock.hcl`, and the four named
    migration instruction files can enter the bundle. Unexpected changes stop it.
+   If new conversions encounter existing migration instructions, repair stops
+   rather than overwrite reviewed IDs/history. Reconcile/archive those artifacts
+   manually first; originals and the new plan remain in private diagnostics.
 4. **Validate:** formats only the selected root, runs `terraform fmt -check`,
    `terraform init -backend=false -input=false`, `terraform validate` and
    `avmigrate check`. Reports distinguish baseline from introduced failures and
@@ -175,6 +178,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: read
     uses: ChrisSidebotham/Terraform-2-AVM/.github/workflows/terraform-to-avm.yml@REPLACE_WITH_40_CHARACTER_FACTORY_SHA
     with:
       factory_ref: REPLACE_WITH_THE_SAME_FACTORY_SHA
@@ -185,14 +189,17 @@ jobs:
       publish: ${{ inputs.publish }}
 ```
 
-The factory workflow checks out **both** the consumer branch and the explicit
-factory SHA into different directories. The engine is bound to that factory
-release, not to the consumer checkout or a mutable remote download. The caller
-must maintain the same-SHA release contract; it is not automatically inferred from
-`github.workflow_sha` (which identifies the caller). For a private factory,
-configure repository/organization Actions sharing/access as well.
+The factory workflow checks out **both** the manual dispatch’s immutable consumer
+commit and the factory SHA into different directories. `base_branch` must match
+the dispatched branch. Read-only Actions run metadata attests that `factory_ref`
+matches the invoked reusable workflow’s revision; missing/mismatched metadata
+fails closed. The engine is bound to that factory release, not to the consumer
+checkout or a mutable download. `github.workflow_sha` identifies the caller, so is
+not used to infer external factory identity. For a private factory, configure
+repository/organization Actions sharing/access as well.
 
-Default permissions are read-only. Only the publication job receives contents/PR
+Default permissions are read-only; conversion also needs `actions: read` to verify
+the release binding. Only the publication job receives contents/PR
 write permissions. It checks out only the trusted factory, validates artifact
 paths/content hashes, and never executes consumer code. Conversion has no write
 credentials, Azure credentials or OIDC access. Publication is restricted to manual

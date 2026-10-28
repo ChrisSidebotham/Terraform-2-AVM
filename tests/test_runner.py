@@ -136,6 +136,8 @@ class Fixture(unittest.TestCase):
         _, result, dest = self.execute(output="after")
         self.assertEqual(result["changed_files"], [])
         self.assertEqual(json.loads((dest / "changes.json").read_text())["files"], [])
+        self.assertEqual(result["static_validation"]["gates"]["avmigrate_check"]["status"],
+                         "failed")
 
     def test_invalid_root_preserves_diagnostics(self):
         (self.root / "main.tf").write_text(RESOURCE)
@@ -199,6 +201,38 @@ class Fixture(unittest.TestCase):
         self.assertEqual(result["static_validation"]["gates"]["validate"]["status"], "blocked")
         self.assertEqual(result["live_plan"]["status"], "not_assessed")
 
+    def test_formatting_alone_is_not_a_meaningful_migration(self):
+        (self.root / "main.tf").write_text("locals {value=1}\n")
+        self.commit()
+        original = Commands.run
+
+        def commands(instance, args, cwd, label):
+            if args[0] == "terraform":
+                if label == "repair-fmt":
+                    (Path(cwd) / "main.tf").write_text("locals {\n  value = 1\n}\n")
+                return {"status": "blocked"} if args[1] == "version" else {"status": "passed"}
+            return original(instance, args, cwd, label)
+
+        with patch.object(Commands, "run", commands):
+            run(self.repo, self.config, "infra", "repair", self.home / "format-only")
+        result = json.loads((self.home / "format-only/result.json").read_text())
+        self.assertEqual(result["changed_files"], [])
+        self.assertFalse((self.home / "format-only/repair.patch").exists())
+
+    def test_existing_migration_instructions_are_not_overwritten(self):
+        (self.root / "main.tf").write_text(RESOURCE)
+        instructions = '# Previously reviewed import instructions\nid = "reviewed-resource-id"\n'
+        (self.root / "avm-state-import.tf.disabled").write_text(instructions)
+        self.commit()
+        code, result, dest = self.execute()
+        self.assertEqual(code, 1)
+        self.assertEqual(result["stages"]["apply_fixes"]["status"], "blocked")
+        self.assertEqual(result["changed_files"], [])
+        self.assertEqual((self.root / "avm-state-import.tf.disabled").read_text(), instructions)
+        self.assertEqual((dest / "private/existing-migration-artifacts/avm-state-import.tf.disabled")
+                         .read_text(), instructions)
+        self.assertIn("existing_migration_instructions", [f["code"] for f in result["findings"]])
+
     def test_introduced_failure_is_distinct_from_baseline(self):
         (self.root / "main.tf").write_text(RESOURCE)
         self.commit()
@@ -227,6 +261,33 @@ class Fixture(unittest.TestCase):
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_subprocesses_do_not_inherit_ci_or_cloud_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            private = Path(tmp)
+            commands = Commands(private, 30)
+            with patch.dict("os.environ", {
+                    "ACTIONS_RUNTIME_TOKEN": "fixture",
+                    "ACTIONS_CACHE_URL": "https://example.invalid",
+                    "GITHUB_TOKEN": "fixture", "GITHUB_ENV": "/tmp/not-to-write",
+                    "GH_TOKEN": "fixture", "ARM_CLIENT_SECRET": "fixture",
+                    "TF_DATA_DIR": "/tmp/not-to-use",
+                    "TF_CLI_ARGS_init": "-backend=true"}):
+                with patch("terraform_to_avm.runner.subprocess.run") as process:
+                    process.return_value.returncode = 0
+                    commands.run(["terraform", "version"], private, "environment")
+                    env = process.call_args.kwargs["env"]
+            for key in ("ACTIONS_RUNTIME_TOKEN", "ACTIONS_CACHE_URL", "GITHUB_TOKEN",
+                        "GITHUB_ENV", "GH_TOKEN", "ARM_CLIENT_SECRET", "TF_DATA_DIR",
+                        "TF_CLI_ARGS_init"):
+                self.assertNotIn(key, env)
+
+    def test_duplicate_config_keys_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            path.write_text('{"include_heuristic":false,"include_heuristic":true}')
+            with self.assertRaisesRegex(ValueError, "duplicate"):
+                load_config(path)
+
     def test_risky_options_disabled_and_no_no_state(self):
         engine = Avmigrate()
         with tempfile.TemporaryDirectory() as tmp:
@@ -263,6 +324,18 @@ class ConfigurationTests(unittest.TestCase):
             actions = engine.state_actions({"converted": [{
                 "module": "test", "from": "azurerm_resource_group.rg", "to": "module.rg"}]})
         self.assertEqual(actions[0]["kind"], "cross_type_adoption")
+
+    def test_compatible_move_and_unknown_destinations_remain_distinct(self):
+        engine = Avmigrate()
+        from types import SimpleNamespace
+        plan = {"converted": [{"module": "test", "from": "azurerm_resource_group.rg",
+                               "to": "module.rg"}]}
+        with patch.object(engine.catalog, "get", return_value=SimpleNamespace(
+                internal_address="azurerm_resource_group.this", state_movable=True)):
+            self.assertEqual(engine.state_actions(plan)[0]["kind"], "compatible_address_move")
+        with patch.object(engine.catalog, "get", return_value=None), patch.object(
+                engine.catalog, "get_submodule", return_value=None):
+            self.assertEqual(engine.state_actions(plan)[0]["kind"], "unknown_destination")
 
 
 if __name__ == "__main__":

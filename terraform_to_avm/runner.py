@@ -20,6 +20,10 @@ DEFAULTS = {"schema_version": 1, "allow": [], "exclude": [],
 STATUSES = ("passed", "blocked", "failed", "not_assessed")
 
 
+class RepairBlocked(ValueError):
+    pass
+
+
 def digest(content):
     return hashlib.sha256(content).hexdigest()
 
@@ -40,7 +44,15 @@ def selected_path(value):
 def load_config(path):
     if Path(path).stat().st_size > 64 * 1024:
         raise ValueError("Configuration exceeds 64 KiB")
-    data = json.loads(Path(path).read_text())
+    def unique_keys(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("Configuration contains duplicate keys")
+            value[key] = item
+        return value
+
+    data = json.loads(Path(path).read_text(), object_pairs_hook=unique_keys)
     if not isinstance(data, dict) or set(data) - set(DEFAULTS):
         raise ValueError("Configuration contains unknown keys")
     config = {**DEFAULTS, **data}
@@ -105,9 +117,9 @@ class Commands:
         self.counter += 1
         log = self.private / f"{self.counter:02}-{label}.log"
         env = {k: v for k, v in os.environ.items()
-               if not k.startswith(("ARM_", "AZURE_", "AWS_", "TF_CLI_ARGS"))
-               and k not in ("GITHUB_TOKEN", "GH_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
-                             "TF_DATA_DIR", "TF_LOG_PATH", "TF_LOG", "TF_LOG_CORE",
+               if not k.startswith(("ARM_", "AZURE_", "AWS_", "TF_CLI_ARGS",
+                                    "ACTIONS_", "GITHUB_", "GH_"))
+               and k not in ("TF_DATA_DIR", "TF_LOG_PATH", "TF_LOG", "TF_LOG_CORE",
                              "TF_LOG_PROVIDER")}
         env.update(TF_IN_AUTOMATION="1", TF_INPUT="0")
         try:
@@ -217,6 +229,12 @@ def run(repository, config_path, root, mode, output):
                 if path.is_file() and (path.suffix == ".tf" or path.name in ARTIFACTS):
                     shutil.copyfile(path, isolated / path.name)
             resources, providers = engine.inventory(isolated)
+            existing_artifacts = [name for name in ARTIFACTS if (selected / name).exists()]
+            if existing_artifacts:
+                preserved = private / "existing-migration-artifacts"
+                preserved.mkdir()
+                for name in existing_artifacts:
+                    shutil.copyfile(selected / name, preserved / name)
             (private / "inventory.json").write_text(json.dumps(
                 {"resources": resources, "provider_requirements": providers}, indent=2))
             commands = Commands(private, config["timeout_seconds"])
@@ -257,6 +275,11 @@ def run(repository, config_path, root, mode, output):
             result["stages"][stage] = gate
             manifest["proposed_changes"] = plan.get("converted", []) + plan.get("absorbed", [])
             manifest["affected_files"] = sorted({i["file"] for i in manifest["proposed_changes"]})
+            reconcile_instructions = bool(existing_artifacts and manifest["proposed_changes"])
+            if reconcile_instructions:
+                finding(result, "existing_migration_instructions", "error",
+                        "New conversions would overwrite existing migration instructions. "
+                        "Reconcile and archive them manually, then regenerate the repair.")
             result["state_migration_actions"] = engine.state_actions(plan)
             for item in plan.get("skipped", []):
                 finding(result, "resource_not_converted", "warning",
@@ -284,6 +307,11 @@ def run(repository, config_path, root, mode, output):
                 result["stages"]["validate"] = {
                     "status": "not_assessed", "reason": "Converted code was not generated"}
             else:
+                if reconcile_instructions:
+                    raise RepairBlocked(
+                        "Existing migration artifacts must be reconciled and archived manually "
+                        "before another conversion. Originals are preserved under "
+                        "private/existing-migration-artifacts; no repair files were published.")
                 # Remove plan-only artifacts before apply so no repeated changelog history leaks in.
                 for name in ARTIFACTS:
                     (isolated / name).unlink(missing_ok=True)
@@ -293,6 +321,11 @@ def run(repository, config_path, root, mode, output):
                 result["stages"][stage] = applied
                 if not apply_path.exists() or applied.get("exit_code", 2) > 1:
                     raise ValueError("avmigrate apply failed without a usable conversion report")
+                if not manifest["proposed_changes"]:
+                    for name in ARTIFACTS:
+                        (isolated / name).unlink(missing_ok=True)
+                    for name in existing_artifacts:
+                        shutil.copyfile(selected / name, isolated / name)
                 for path in isolated.iterdir():
                     if path.is_dir() or not (path.suffix == ".tf" or path.name in ARTIFACTS):
                         raise ValueError("Engine wrote an unexpected path")
@@ -339,8 +372,9 @@ def run(repository, config_path, root, mode, output):
                                  if original.get(name) != candidate_files.get(name))
                 if any(not permitted(name, root) for name in changed):
                     raise ValueError("Unexpected change outside the permitted root file list")
-                meaningful = any(name.endswith(".tf") and
-                                 original.get(name) != candidate_files.get(name) for name in changed)
+                meaningful = bool(manifest["proposed_changes"]) and any(
+                    name.endswith(".tf") and original.get(name) != candidate_files.get(name)
+                    for name in changed)
                 if meaningful:
                     patch = []
                     for name in changed:
@@ -365,9 +399,10 @@ def run(repository, config_path, root, mode, output):
     except (ValueError, OSError, subprocess.SubprocessError, KeyError) as exc:
         # Full errors can contain source text or values. Do not copy them into public output.
         (private / "failure.txt").write_text(f"{type(exc).__name__}: {exc}\n")
-        result["stages"][stage] = {"status": "failed",
+        status = "blocked" if isinstance(exc, RepairBlocked) else "failed"
+        result["stages"][stage] = {"status": status,
                                   "reason": "See private/failure.txt for actionable diagnostics"}
-        finding(result, "stage_failed", "error", f"The {stage} stage failed; diagnostics preserved.")
+        finding(result, f"stage_{status}", "error", f"The {stage} stage is {status}; diagnostics preserved.")
     finally:
         manifest["findings"] = result["findings"]
         manifest["blockers"] = [f for f in result["findings"] if f["severity"] == "error"]
