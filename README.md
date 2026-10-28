@@ -2,7 +2,7 @@
 
 PR-based **code repair**, not infrastructure deployment. Converts supported
 `azurerm_*` resources into pinned Azure Verified Modules using ChrisSidebotham’s
-existing **avmigrate 1.10.0** engine. Destination modules can use AzureRM or AzAPI.
+vendored **avmigrate** engine. Destination modules can use AzureRM or AzAPI.
 Arbitrary `azapi_resource` / `azapi_update_resource` **source** conversion is not
 supported; unsupported resources are reported and left unchanged.
 
@@ -35,11 +35,11 @@ Terraform 1.9.8 is pinned in Actions for static gates. There are no pip dependen
 
 [`vendor/avmigrate/provenance.json`](vendor/avmigrate/provenance.json) records the
 [original gist](https://gist.github.com/ChrisSidebotham/0a3b2e9809a9831692c3bb2bff4c0a54),
-author, distribution version, embedded catalogue (schema 2, September 7, 2026),
-and exact artifact revision:
+author, distribution version, available catalogue metadata, and exact artifact
+revision. Inspect the current pin without executing the engine:
 
-```text
-sha256:82fe2166af1c5d7c91c4211896b03f866e8854d77d77f5b94e71a10274265911
+```sh
+cat /absolute/factory/vendor/avmigrate/provenance.json
 ```
 
 The original **bundled Python artifact** is vendored unchanged and verified before
@@ -52,16 +52,73 @@ python /absolute/factory/vendor/avmigrate/avmigrate.py info
 python /absolute/factory/vendor/avmigrate/avmigrate.py plan /absolute/infra
 ```
 
-**Provenance limitation:** upstream history was inaccessible during import, so the
-distribution is content-pinned, but an upstream **Git commit revision has not been
-verified**. No mutable gist is downloaded at runtime. Confirm and record the
-upstream Git revision before calling this a Git-revision-pinned release.
+**Initial provenance limitation:** upstream history was inaccessible during import,
+so the initial distribution is content-pinned without a verified upstream Git
+commit. See `git_revision` in provenance for the current pin. A successful reviewed
+updater PR records the verified revision. No mutable gist is downloaded during
+migration runs.
 
-**Licensing limitation:** no license notice was found in the accessible gist
-README/artifact; attempted conventional license filenames were unavailable.
+**Initial licensing limitation:** no license notice was found in the accessible
+gist README/artifact; attempted conventional license filenames were unavailable.
 Confirm permission to redistribute with the author before distributing a release.
 The repository’s existing MIT license and attribution are preserved; they are not
 asserted to relicense the vendored engine.
+
+### Latest-gist compatibility and reviewed updates
+
+The gist remains avmigrate’s development/distribution home.
+`.github/workflows/avmigrate-update.yml` runs weekly and on manual dispatch from
+the default branch. It does **not** make migration runs download “latest”.
+
+1. Anonymous discovery resolves the latest gist **once** to a full Git revision.
+   The artifact and any conventional `LICENSE`/`COPYING` files are fetched only
+   from that immutable revision. Version extraction parses Python syntax without
+   importing it; provenance records version, revision and SHA256.
+2. Our compatibility suite runs against a candidate copy in a resource-limited,
+   non-root Docker container with no network, credentials, Docker socket or live
+   Terraform state. Only synthetic fixture repositories are used. The existing
+   vendored pin stays unchanged; candidate execution has no repository/PR write
+   permissions.
+3. Only a passing compatibility job enables a **separate publisher job**. It
+   checks out trusted repository code and independently fetches the same revision,
+   verifying the tested artifact hash before proposing a draft dependency-update
+   PR. It never imports or runs the candidate. Only the engine, provenance and
+   captured upstream license can enter that commit.
+4. Review the upstream changes and license terms, run the separate Terraform
+   integration workflow if appropriate, then merge explicitly. Future factory
+   releases include that reviewed engine; already pinned factory releases do not
+   change. Identical reruns add no commits or duplicate PRs. Human edits or stale
+   updater branches stop publication rather than being overwritten.
+
+The workflow requires GitHub-hosted Ubuntu runners with Docker, anonymous access
+to the gist API/raw host, container-registry/package downloads to build its test
+image, and the repository setting permitting Actions to create PRs. Default
+permissions are read-only; only publication gets contents/PR write permissions.
+No Azure credentials or OIDC are requested. Configure scheduled Actions to remain
+enabled; GitHub can disable schedules in inactive public repositories. Manual
+dispatch works only on the default branch. Logs/provenance have short artifact
+retention; discovery or tests failing prevents publication.
+
+Local discovery is also available (new, absolute output directory):
+
+```sh
+cd /absolute/factory
+python -m terraform_to_avm.gist_update fetch --output /absolute/new-candidate
+```
+
+Treat that output as **untrusted**: do not run it in a credentialed shell.
+Discovery does not run tests, modify `vendor/` or publish anything. If metadata
+access is unavailable, discovery fails closed rather than substituting a mutable
+raw URL. The current content-only pin remains until a verified update is reviewed.
+
+Add an explicit license to the gist itself. This workflow preserves license files
+when present and flags their absence; it does not invent a license, infer legal
+permission from passing tests, or change the gist. A missing license remains a
+manual distribution/release prerequisite even if a draft update is proposed.
+Compatibility tests exercise **our integration**, not the original engine’s
+unavailable source-tree tests, and say nothing about live infrastructure safety.
+Bot-created update PRs have the same downstream-CI token limitations described
+below; tests passing is not automatic approval to merge.
 
 ## Local usage and configuration
 
