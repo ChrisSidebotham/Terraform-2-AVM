@@ -1,0 +1,83 @@
+name: Terraform to AVM synthetic demo
+
+# Public artifacts are safe ONLY because examples.demo constructs its own
+# disposable consumer from committed synthetic fixtures; it accepts no source path.
+on:
+  workflow_dispatch:
+  push:
+    branches: [demo/presentation-evidence]
+    paths:
+      - .github/workflows/terraform-to-avm-demo.yml
+      - examples/demo.py
+      - examples/demo/*.tf
+  pull_request:
+    paths:
+      - .github/workflows/terraform-to-avm-demo.yml
+      - examples/demo.py
+      - examples/demo/*.tf
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    name: Synthetic ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [report, repair, no-change]
+    steps:
+      - name: Check out synthetic fixtures and converter
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      - name: Exercise real conversion and verify demo expectations
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          OUTPUT: ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}
+          TF_IN_AUTOMATION: 'true'
+          CHECKPOINT_DISABLE: '1'
+        run: |
+          unset ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL ACTIONS_CACHE_URL \
+            ACTIONS_CACHE_SERVICE_V2 ACTIONS_RESULTS_URL \
+            ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_ID_TOKEN_REQUEST_URL
+          python -m examples.demo --scenario "$SCENARIO" --output "$OUTPUT"
+      - name: Show verified synthetic results
+        if: success()
+        env:
+          OUTPUT: ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}
+        run: cat "$OUTPUT/demo-summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve synthetic demo evidence and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: synthetic-demo-${{ matrix.scenario }}-${{ github.run_id }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/demo-evidence.json
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/demo-summary.md
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/source-before.tf
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/source-after.tf
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/result.json
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/summary.md
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/repair-manifest.json
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/changes.json
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/repeat-changes.json
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/repair.patch
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/private/*.json
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/private/*.log
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/private/*.txt
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/private/plan-artifacts/*
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/repeat-failure/**

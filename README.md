@@ -201,6 +201,11 @@ publisher. Review source diffs for pre-existing literal secrets before sharing.
 
 ## GitHub Actions
 
+For presentation/rehearsal with public synthetic data, see the
+[demo guide](examples/demo/README.md) and
+`.github/workflows/terraform-to-avm-demo.yml`. This separate demo constructs a
+disposable fixture; it does not relax the private-consumer requirement below.
+
 The reusable workflow is
 `.github/workflows/terraform-to-avm.yml`; a minimal manual caller is
 `.github/workflows/terraform-to-avm-example.yml`. **Actions report bundles require a
