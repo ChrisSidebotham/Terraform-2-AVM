@@ -80,3 +80,4 @@ jobs:
             ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/private/*.log
             ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/private/*.txt
             ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/private/plan-artifacts/*
+            ${{ runner.temp }}/synthetic-demo-${{ matrix.scenario }}/repeat-failure/**

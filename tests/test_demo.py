@@ -77,6 +77,20 @@ class SyntheticDemoTests(unittest.TestCase):
             demonstrate("report", output)
         self.assertEqual((output / "result.json").read_bytes(), before)
 
+    def test_failed_no_change_setup_preserves_diagnostics(self):
+        original = Commands.run
+
+        def commands(instance, args, cwd, label):
+            if args[:2] == ["terraform", "init"]:
+                return {"status": "failed", "exit_code": 1}
+            return original(instance, args, cwd, label)
+
+        with patch.object(Commands, "run", commands):
+            with self.assertRaisesRegex(ValueError, "baseline init did not pass"):
+                self.execute("no-change")
+        result = json.loads((self.home / "no-change/result.json").read_text())
+        self.assertEqual(result["baseline"]["static_validation"]["init"]["status"], "failed")
+
 
 if __name__ == "__main__":
     unittest.main()

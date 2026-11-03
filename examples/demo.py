@@ -109,7 +109,11 @@ def demonstrate(scenario, output):
         if scenario == "no-change":
             seed = home / "seed"
             code = run(consumer, consumer / "avm.json", "infra", "repair", seed)
-            verify_bundle(seed, "repair", code)
+            try:
+                verify_bundle(seed, "repair", code)
+            except ValueError:
+                shutil.copytree(seed, output)
+                raise
             git(consumer, "apply", "--check", str(seed / "repair.patch"))
             git(consumer, "apply", str(seed / "repair.patch"))
             seed_changes = json.loads((seed / "changes.json").read_text())
@@ -130,7 +134,11 @@ def demonstrate(scenario, output):
             git(consumer, "apply", "--check", str(output / "repair.patch"))
             repeat = home / "repeat"
             repeat_code = run(consumer, consumer / "avm.json", "infra", mode, repeat)
-            _, _, repeated_changes = verify_bundle(repeat, scenario, repeat_code)
+            try:
+                _, _, repeated_changes = verify_bundle(repeat, scenario, repeat_code)
+            except ValueError:
+                shutil.copytree(repeat, output / "repeat-failure")
+                raise
             require(changes == repeated_changes, "Repeated repair changed the proposed files")
             require((output / "repair.patch").read_bytes() == (repeat / "repair.patch").read_bytes(),
                     "Repeated repair changed the patch")
