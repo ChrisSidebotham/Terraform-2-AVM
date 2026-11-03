@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "recorded_date": "2026-11-03",
+  "repository": "ChrisSidebotham/Terraform-2-AVM",
+  "synthetic_only": true,
+  "demo_run_id": 41655682111,
+  "demo_run_conclusion": "success",
+  "independent_demo_run_id": 41655669615,
+  "branch_commit": "545af64b0008887e32052cf0658284fe6b2040dc",
+  "tested_pr_merge_commit": "12e70adafcd6f6a68f7e014519d18587554f5c2a",
+  "terraform_version": "1.9.8",
+  "artifacts_downloaded_and_inspected": true,
+  "scenarios": [
+    {
+      "scenario": "report",
+      "job_conclusion": "success",
+      "artifact_id": 13239087614,
+      "artifact_name": "synthetic-demo-report-41655682111-1",
+      "artifact_expires_at": "2026-11-10T14:38:38Z",
+      "proposed_conversions": 3,
+      "changed_files": 0,
+      "converter_exit_code": 0,
+      "candidate_static_validation": "not_assessed",
+      "consumer_unchanged": true,
+      "nested_root_unchanged": true
+    },
+    {
+      "scenario": "repair",
+      "job_conclusion": "success",
+      "artifact_id": 13240110777,
+      "artifact_name": "synthetic-demo-repair-41655682111-1",
+      "artifact_expires_at": "2026-11-10T14:39:02Z",
+      "proposed_conversions": 3,
+      "changed_files": 6,
+      "converter_exit_code": 1,
+      "candidate_terraform_gates": {
+        "format": "passed",
+        "init": "passed",
+        "validate": "passed",
+        "avmigrate_check": "failed"
+      },
+      "consumer_unchanged": true,
+      "nested_root_unchanged": true,
+      "patch_applies": true,
+      "repeat_identical": true,
+      "repair_patch_sha256": "0c543bdc4b53ad19f3f97cee76875874d361b34670e140570b366b7e3f6c7b17",
+      "changes_json_sha256": "c24beaa3f700afd3148225ae494106c234457b3bcfe3ed809a9dbe46f5a159e1"
+    },
+    {
+      "scenario": "no-change",
+      "job_conclusion": "success",
+      "artifact_id": 13239039154,
+      "artifact_name": "synthetic-demo-no-change-41655682111-1",
+      "artifact_expires_at": "2026-11-10T14:39:04Z",
+      "proposed_conversions": 0,
+      "changed_files": 0,
+      "converter_exit_code": 1,
+      "candidate_terraform_gates": {
+        "format": "passed",
+        "init": "passed",
+        "validate": "passed",
+        "avmigrate_check": "failed"
+      },
+      "consumer_unchanged": true,
+      "nested_root_unchanged": true
+    }
+  ],
+  "main_branch_integration_run": {
+    "run_id": 41652155241,
+    "source_commit": "653aafa3325e3ed8ab20fb515b775e997a8686fb",
+    "conclusion": "success"
+  },
+  "public_repository_privacy_guard_run": {
+    "run_id": 41652150431,
+    "conclusion": "failure",
+    "expected_rejection": "Sensitive report artifacts require a private consumer repository",
+    "artifact_count": 0
+  },
+  "live_plan": "not_assessed",
+  "deployment_readiness": "blocked",
+  "live_pr_publisher_exercised": false
+}

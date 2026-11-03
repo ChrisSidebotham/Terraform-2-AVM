@@ -6,6 +6,36 @@ group in nested `infra/production`. No Azure account, subscription, state, or
 credentials are used. Real Terraform 1.9.8 downloads public modules/providers for
 backend-free initialization and validation.
 
+## Verified rehearsal: 3 November 2026
+
+The [recorded demo run](https://github.com/ChrisSidebotham/Terraform-2-AVM/actions/runs/41655682111)
+completed successfully, and all three artifacts were downloaded and inspected.
+The [independent push run](https://github.com/ChrisSidebotham/Terraform-2-AVM/actions/runs/41655669615)
+also passed. These runs tested branch commit
+`545af64b0008887e32052cf0658284fe6b2040dc`; the PR run checked out GitHub's
+synthetic merge commit `12e70adafcd6f6a68f7e014519d18587554f5c2a`.
+
+| Scenario | Proposed conversions | Changed files | Converter exit | Verified behavior |
+|---|---|---|---|---|
+| Report | 3 | 0 | 0 | Source unchanged; plan and adoption requirements preserved |
+| Repair | 3 | 6 | 1 | Three AVM modules; applicable patch; repeated files/patch identical |
+| No-change | 0 | 0 | 1 | Previously accepted code repair generates no further patch |
+
+All three demo jobs passed their assertions. Both repair scenarios passed real
+Terraform formatting, initialization, and validation; migration TODO checks
+remained failed as intended. No deployment or live publisher was exercised.
+The recorded run's artifacts expire on **10 November 2026 at approximately
+14:39 UTC**. See [evidence.json](evidence.json) for artifact IDs and patch hashes.
+
+The [real Terraform integration run](https://github.com/ChrisSidebotham/Terraform-2-AVM/actions/runs/41652155241)
+also passed on `main`. The
+[linked manual workflow run](https://github.com/ChrisSidebotham/Terraform-2-AVM/actions/runs/41652150431)
+correctly rejected the public consumer before checkout and uploaded **zero**
+artifacts. A private demo repository could not be created by this session:
+the repository-creation client was unavailable and the installation API token
+returned HTTP 403. This is a session-access limitation, not a claim about the
+maintainer's own GitHub permissions.
+
 ## What to show in five minutes
 
 1. Open **Actions > Terraform to AVM synthetic demo** and a successful run. Its
@@ -108,6 +138,7 @@ consumer.
 | Linked workflow immediately red | Use a private consumer, or the synthetic demo for public presentation |
 | Converter exit code `1` but demo job green | Expected only when the asserted unresolved migration TODOs remain; inspect individual gates |
 | `init` fails | Provider/module downloads need network or mirrors; backend-free is not offline |
+| No-change setup or repeated repair fails | The job fails; seed diagnostics remain in the artifact, or repeat diagnostics under `repeat-failure/` |
 | Output path already exists | Choose a fresh local output directory |
 | Publication fails | Check Actions PR permissions, current base SHA, existing draft branch, and artifact availability |
 | Rerun after changing `main` fails publication | Review/archive the previous draft and remove its branch before regeneration; never force-push human changes |
