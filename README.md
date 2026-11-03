@@ -1,221 +1,99 @@
 # Terraform to AVM
 
-PR-based **code repair**, not infrastructure deployment. Converts supported
-`azurerm_*` resources into pinned Azure Verified Modules using ChrisSidebotham’s
-vendored **avmigrate** engine. Destination modules can use AzureRM or AzAPI.
-Arbitrary `azapi_resource` / `azapi_update_resource` **source** conversion is not
-supported; unsupported resources are reported and left unchanged.
+Turn supported `azurerm_*` Terraform resources into **Azure Verified Module
+(AVM) calls**, with a report, a reviewable patch, and optionally a draft pull
+request. This repository packages the vendored **avmigrate** converter with a
+Python CLI and a reusable GitHub Actions workflow.
 
-Python 3.12 and Git are sufficient for conversion and the offline test suite.
-Terraform 1.9.8 is pinned in Actions for static gates. There are no pip dependencies.
+For example, an `azurerm_resource_group` can become a pinned AVM resource-group
+module. The report also identifies state-adoption work that an operator must
+review separately. Unsupported resources are reported and left unchanged;
+arbitrary `azapi_resource` / `azapi_update_resource` inputs are not supported.
 
-## Safety contract
+**This changes proposed code, not deployed infrastructure.** It does not run
+`terraform apply`, imports, or state commands, and it does not merge PRs.
 
-- One explicitly selected root per run; only its immediate `.tf` files are
-  converted. Nested roots/environments are never discovered for conversion.
-- `report` leaves the entire consuming checkout unchanged. `repair` also leaves
-  it unchanged: code rewriting happens in a disposable committed snapshot and
-  produces a patch/bundle for review.
-- **`avmigrate apply` rewrites code. `terraform apply` never runs.** Neither do
-  imports, state commands, migration scripts, authenticated live plans, deployment
-  or automatic merge. Generated instructions are preserved, not executed.
-- Heuristic matching and provider-major constraint widening are off by default.
-  Module dependencies can still require different providers; review the diff,
-  requirements, lockfile and any initialization failures.
-- Passing static gates is **not proof of infrastructure safety**. Live-plan status
-  is always `not_assessed`; deployment readiness remains `blocked` in this MVP.
-  All advisory findings—including lifecycle settings and unmapped arguments—need
-  explicit human review before deployment.
-- Same-resource-type address moves differ from AzureRM-to-AzAPI adoption.
-  `state mv` / `moved` cannot generally cross resource types. Missing resource IDs,
-  unknown internal addresses and absorbed-resource destinations are explicit
-  blockers. Do not bypass these with `--no-state`; the wrapper never uses it.
+## Choose how to use it
 
-## Engine provenance and licensing
+| Your goal | Use |
+|---|---|
+| Try it with synthetic Terraform, without an Azure account | [Presentation demo](examples/demo/README.md) |
+| Add report/repair runs to another repository | [Reusable workflow quick start](#use-from-another-github-repository) |
+| Run locally, or integrate with a different CI system | [Python CLI](#use-locally-or-in-another-ci-system) |
+| Understand validation, provenance, licensing, or engine updates | [Operational reference](docs/reference.md) |
 
-[`vendor/avmigrate/provenance.json`](vendor/avmigrate/provenance.json) records the
-[original gist](https://gist.github.com/ChrisSidebotham/0a3b2e9809a9831692c3bb2bff4c0a54),
-author, distribution version, available catalogue metadata, and exact artifact
-revision. Inspect the current pin without executing the engine:
+Both entry points select **one Terraform root per run** and process only its
+immediate `.tf` files, not nested environments. Neither modifies the original
+consumer checkout: repairs are generated in a disposable snapshot.
 
-```sh
-cat /absolute/factory/vendor/avmigrate/provenance.json
+| Mode | What you get |
+|---|---|
+| `report` | Inventory, proposed conversions, findings, and required state transitions; no repair patch |
+| `repair` | The report plus a patch and static validation of the proposed code |
+| `repair` with `publish: true` in Actions | A draft PR when there are reviewable changes |
+
+## Use from another GitHub repository
+
+### 1. Prepare the consumer repository
+
+The **consumer** is the repository containing the Terraform you want to convert.
+The reusable workflow currently requires a **private consumer repository** and
+a **manual `workflow_dispatch` run on a branch**. It is not a general-purpose
+push/PR-triggered action. For public repositories, use the local CLI or the
+synthetic demo instead.
+
+Commit your Terraform and an `avm.json` file to the consumer. Start with a narrow
+scope, for example:
+
+```json
+{
+  "schema_version": 1,
+  "allow": ["azurerm_resource_group"]
+}
 ```
 
-The original **bundled Python artifact** is vendored unchanged and verified before
-execution. Its embedded modules/catalogue are reused, not reconstructed from the
-gist README. The original source tree and upstream tests are **not** included.
-Standalone offline usage still works:
+This converts only supported resource groups. Use `"allow": []` to consider all
+engine-supported types. See [configuration](#configuration) for other options.
+
+### 2. Choose the factory SHA
+
+**Factory** means this repository, `ChrisSidebotham/Terraform-2-AVM`: the tooling
+that produces the proposed repair. **Factory SHA** means the full, 40-character
+Git commit ID of the version of this repository you have reviewed and want to
+run. It is **not** your Terraform repository's commit, an Azure identifier, the
+upstream gist revision, or the engine's SHA256 checksum.
+
+To find a candidate commit on this repository's default branch:
 
 ```sh
-python /absolute/factory/vendor/avmigrate/avmigrate.py info
-python /absolute/factory/vendor/avmigrate/avmigrate.py plan /absolute/infra
+gh api repos/ChrisSidebotham/Terraform-2-AVM/commits/main --jq .sha
 ```
 
-**Initial provenance limitation:** upstream history was inaccessible during import,
-so the initial distribution is content-pinned without a verified upstream Git
-commit. See `git_revision` in provenance for the current pin. A successful reviewed
-updater PR records the verified revision. No mutable gist is downloaded during
-migration runs.
+Review that commit and its checks before adopting it. If you have cloned this
+repository and checked out the version you want, `git rev-parse HEAD` gives its
+full SHA instead.
 
-**Initial licensing limitation:** no license notice was found in the accessible
-gist README/artifact; attempted conventional license filenames were unavailable.
-Confirm permission to redistribute with the author before distributing a release.
-The repository’s existing MIT license and attribution are preserved; they are not
-asserted to relicense the vendored engine.
+Paste the **same literal SHA in two places** in the caller below:
 
-### Latest-gist compatibility and reviewed updates
+| Place | Purpose |
+|---|---|
+| `uses: ...terraform-to-avm.yml@<SHA>` | Selects the reusable workflow version |
+| `factory_ref: <SHA>` | Selects the matching converter, publisher, and bundled engine |
 
-The gist remains avmigrate’s development/distribution home.
-`.github/workflows/avmigrate-update.yml` runs weekly and on manual dispatch from
-the default branch. It does **not** make migration runs download “latest”.
+The workflow verifies these match using GitHub Actions run metadata. Do not use
+`main`, a tag, a short SHA, or the consumer's `${{ github.sha }}` as
+`factory_ref`. GitHub also does not allow expressions in a reusable workflow's
+`uses`, so a variable cannot replace that literal pin.
 
-1. Anonymous discovery resolves the latest gist **once** to a full Git revision.
-   The artifact and any conventional `LICENSE`/`COPYING` files are fetched only
-   from that immutable revision. Version extraction parses Python syntax without
-   importing it; provenance records version, revision and SHA256.
-2. Our compatibility suite runs against a candidate copy in a resource-limited,
-   non-root Docker container with no network, credentials, Docker socket or live
-   Terraform state. Only synthetic fixture repositories are used. The existing
-   vendored pin stays unchanged; candidate execution has no repository/PR write
-   permissions.
-3. Only a passing compatibility job enables a **separate publisher job**. It
-   checks out trusted repository code and independently fetches the same revision,
-   verifying the tested artifact hash before proposing a draft dependency-update
-   PR. It never imports or runs the candidate. Only the engine, provenance and
-   captured upstream license can enter that commit.
-4. Review the upstream changes and license terms, run the separate Terraform
-   integration workflow if appropriate, then merge explicitly. Future factory
-   releases include that reviewed engine; already pinned factory releases do not
-   change. Identical reruns add no commits or duplicate PRs. Human edits or stale
-   updater branches stop publication rather than being overwritten.
+The engine is bundled in the factory commit; migration runs do not download the
+latest gist. To upgrade later, review a newer factory commit and update **both**
+pins together.
 
-The workflow requires GitHub-hosted Ubuntu runners with Docker, anonymous access
-to the gist API/raw host, container-registry/package downloads to build its test
-image, and the repository setting permitting Actions to create PRs. Default
-permissions are read-only; only publication gets contents/PR write permissions.
-No Azure credentials or OIDC are requested. Configure scheduled Actions to remain
-enabled; GitHub can disable schedules in inactive public repositories. Manual
-dispatch works only on the default branch. Logs/provenance have short artifact
-retention; discovery or tests failing prevents publication.
+### 3. Add a caller workflow
 
-Local discovery is also available (new, absolute output directory):
-
-```sh
-cd /absolute/factory
-python -m terraform_to_avm.gist_update fetch --output /absolute/new-candidate
-```
-
-Treat that output as **untrusted**: do not run it in a credentialed shell.
-Discovery does not run tests, modify `vendor/` or publish anything. If metadata
-access is unavailable, discovery fails closed rather than substituting a mutable
-raw URL. The current content-only pin remains until a verified update is reviewed.
-
-Add an explicit license to the gist itself. This workflow preserves license files
-when present and flags their absence; it does not invent a license, infer legal
-permission from passing tests, or change the gist. A missing license remains a
-manual distribution/release prerequisite even if a draft update is proposed.
-Compatibility tests exercise **our integration**, not the original engine’s
-unavailable source-tree tests, and say nothing about live infrastructure safety.
-Bot-created update PRs have the same downstream-CI token limitations described
-below; tests passing is not automatic approval to merge.
-
-## Local usage and configuration
-
-Run from the factory directory, using absolute filesystem paths. The consumer must
-be a clean, committed Git checkout. Uncommitted/untracked files, symlinks,
-submodules and selected `.tf.json` configurations are rejected rather than
-partially processed. Root and file names use plain letters, digits, `_`, `-`, `.`.
-The root is a repository-relative POSIX path (`.` is allowed).
-
-```sh
-cd /absolute/factory
-python -m terraform_to_avm run \
-  --repository /absolute/consumer \
-  --config /absolute/consumer/avm.json \
-  --root infrastructure/dev --mode report \
-  --output /absolute/new-private-output
-```
-
-Change `--mode report` to `--mode repair` to generate a patch. Output must be a
-new/empty directory **outside** the consumer. No token or Azure login is needed.
-Exit status is nonzero on failed/blocked stages; available reports survive.
-A blocked deployment review is separate from subprocess success.
-
-Configuration is a JSON object, at most 64 KiB, with these optional keys only:
-
-| Key | Default | Validation |
-|---|---|---|
-| `schema_version` | `1` | integer `1` |
-| `allow` | `[]` | list of `azurerm_*` resource types; empty means engine-supported types |
-| `exclude` | `[]` | list of resource types; must not overlap `allow` |
-| `include_heuristic` | `false` | boolean; explicit opt-in, requires review |
-| `bump_providers` | `false` | boolean; explicit provider constraint widening opt-in |
-| `timeout_seconds` | `300` | integer `1..1800`, per subprocess |
-
-Use [`examples/config.json`](examples/config.json). No `no_state`, arbitrary CLI
-arguments, dynamic plugin loading or schema URL overrides are accepted.
-avmigrate is the first named fixer behind a small adapter, not a plugin framework.
-
-### Five stages and outputs
-
-1. **Intake:** records commit, engine/catalogue and Terraform versions; inventories
-   resources, provider requirements and existing TODOs. Baseline formatting,
-   backend-free initialization, validation and TODO results are recorded separately.
-2. **Plan repair:** runs `avmigrate plan --json`; writes versioned
-   `repair-manifest.json` with proposed conversions, affected files, findings,
-   blockers and required state transitions.
-3. **Apply targeted fixes:** runs `avmigrate apply` in isolation, using allow/exclude
-   filters. Only selected-root `.tf`, `.terraform.lock.hcl`, and the four named
-   migration instruction files can enter the bundle. Unexpected changes stop it.
-   If new conversions encounter existing migration instructions, repair stops
-   rather than overwrite reviewed IDs/history. Reconcile/archive those artifacts
-   manually first; originals and the new plan remain in private diagnostics.
-4. **Validate:** formats only the selected root, runs `terraform fmt -check`,
-   `terraform init -backend=false -input=false`, `terraform validate` and
-   `avmigrate check`. Reports distinguish baseline from introduced failures and
-   `passed`, `blocked`, `failed`, `not_assessed` gates. Initialization still needs
-   provider/module downloads or configured mirrors; backend-free is **not offline**.
-   Explicit local module dependencies may be loaded for validation, not converted.
-5. **Promote:** a separate publisher validates the untrusted bundle against source
-   blob hashes and publishes one draft PR on a deterministic root-hash branch.
-   Identical reruns add no commits. Human edits, unrelated branches, non-draft PRs
-   or stale bases stop publication with an explanation; no force pushes occur.
-   Review/archive the existing PR and remove its branch before regenerating against
-   a changed base. A no-change/report-only run creates no PR.
-
-`result.json` schema version 1 includes `run_id`, `source_commit`, `selected_root`,
-engine provenance, `stages`, `changed_files`, severity-tagged `findings`,
-`state_migration_actions`, `static_validation`, and honest `live_plan` status.
-`summary.md` is readable. `repair.patch` and `changes.json` contain the proposed
-code; raw diagnostics and full engine reports are under `private/`.
-Publication updates the local result’s promotion stage.
-
-**Treat the whole bundle as sensitive.** Terraform source, provider requirements,
-patches and diagnostics may contain literal secrets. Never paste them into public
-logs/issues. Public-facing summaries and PR bodies use generic diagnostics and
-counts, not raw values. No state or plan contents are generated or uploaded.
-Commits use an explicit file list—never `git add .`; variable files, backups,
-credentials, state, plans and `.terraform` caches cannot be published by the
-publisher. Review source diffs for pre-existing literal secrets before sharing.
-
-## GitHub Actions
-
-For presentation/rehearsal with public synthetic data, see the
-[demo guide](examples/demo/README.md) and
-`.github/workflows/terraform-to-avm-demo.yml`. This separate demo constructs a
-disposable fixture; it does not relax the private-consumer requirement below.
-
-The reusable workflow is
-`.github/workflows/terraform-to-avm.yml`; a minimal manual caller is
-`.github/workflows/terraform-to-avm-example.yml`. **Actions report bundles require a
-private consumer repository**, enforced before checkout: artifacts in a public
-repository are not private just because their name contains “private”.
-Local use and the offline example below work in public repositories too.
-
-For another repository, copy this caller to its default branch, substitute the
-**same reviewed, immutable factory commit SHA in both places**, and commit
-`avm.json`. GitHub does not allow an expression in a reusable workflow’s `uses`.
+Save this as `.github/workflows/terraform-to-avm.yml` in the **consumer**.
+Replace both `REPLACE_WITH_40_CHARACTER_FACTORY_SHA` placeholders with the SHA
+chosen above, then commit the workflow to the consumer's default branch.
 
 ```yaml
 name: Terraform to AVM
@@ -223,7 +101,7 @@ on:
   workflow_dispatch:
     inputs:
       root:
-        description: Terraform root, relative to this repository
+        description: Terraform root relative to this repository, e.g. infra/dev
         required: true
         type: string
       mode:
@@ -243,7 +121,7 @@ jobs:
       actions: read
     uses: ChrisSidebotham/Terraform-2-AVM/.github/workflows/terraform-to-avm.yml@REPLACE_WITH_40_CHARACTER_FACTORY_SHA
     with:
-      factory_ref: REPLACE_WITH_THE_SAME_FACTORY_SHA
+      factory_ref: REPLACE_WITH_40_CHARACTER_FACTORY_SHA
       config_path: avm.json
       root: ${{ inputs.root }}
       base_branch: ${{ github.ref_name }}
@@ -251,95 +129,137 @@ jobs:
       publish: ${{ inputs.publish }}
 ```
 
-The factory workflow checks out **both** the manual dispatch’s immutable consumer
-commit and the factory SHA into different directories. `base_branch` must match
-the dispatched branch. Read-only Actions run metadata attests that `factory_ref`
-matches the invoked reusable workflow’s revision; missing/mismatched metadata
-fails closed. The engine is bound to that factory release, not to the consumer
-checkout or a mutable download. `github.workflow_sha` identifies the caller, so is
-not used to infer external factory identity. For a private factory, configure
-repository/organization Actions sharing/access as well.
+This is a **job-level reusable workflow call**, not an action to put under
+`steps`. Add the `migrate` job to an existing manually dispatched workflow if
+you prefer; preserve its inputs and permissions. If your organization restricts
+Actions, allow this reusable workflow and its dependencies. A private factory
+also requires Actions sharing/access configuration.
 
-Default permissions are read-only; conversion also needs `actions: read` to verify
-the release binding. Only the publication job receives contents/PR
-write permissions. It checks out only the trusted factory, validates artifact
-paths/content hashes, and never executes consumer code. Conversion has no write
-credentials, Azure credentials or OIDC access. Publication is restricted to manual
-repair runs. Root-based concurrency prevents overlapping updates. All actions use
-full revision pins. No `pull_request_target` or fork-code write job is used.
-The normal PR CI job has read-only permissions and does not receive secrets.
+The caller permissions are upper bounds: conversion is read-only;
+contents/PR writes are used only by the separate publishing job. No Azure
+credentials, OIDC, or inherited caller secrets are needed. To publish PRs,
+enable **Settings > Actions > General > Allow GitHub Actions to create and
+approve pull requests**, subject to organization policy.
 
-Enable the repository/organization setting allowing GitHub Actions to create pull
-requests; organization policy may require approval. `GITHUB_TOKEN`-created PRs
-**usually do not trigger downstream workflows**. Do not assume checks start:
-an authorized maintainer may need to approve/run `workflow_dispatch` checks or use
-an approved GitHub App/fine-grained token in a separately reviewed publisher setup.
-Local publishing supports such a token via `GITHUB_TOKEN`; the reusable workflow
-uses only its own job-scoped token and does not inherit caller secrets.
-Artifacts are retained for three days; download/review them before expiry.
+### 4. Run report, then repair
 
-## Tests
+In the consumer, open **Actions > Terraform to AVM > Run workflow**. Choose the
+branch containing your committed Terraform and config, set `root` to its
+repository-relative directory (for example `infra/dev`, or `.` for the repository
+root), and start with `mode=report`, `publish=false`.
+
+You can also dispatch it from an existing automation or terminal:
 
 ```sh
-cd /absolute/factory
-python -m unittest discover -s tests -v
+gh workflow run terraform-to-avm.yml --repo YOUR_ORG/YOUR_REPO --ref main \
+  -f root=infra/dev -f mode=report -f publish=false
 ```
 
-Fixture Git repositories exercise the real bundled converter; Terraform
-subprocesses and GitHub REST are mocked in normal CI. No Azure credentials or
-network are required. Separate, manual network integration downloads public
-providers/modules (or uses your configured mirrors), without live state:
+Use the same branch for the dispatch and `base_branch`; the example derives the
+latter automatically. Only the selected root is converted. For multiple roots,
+dispatch a separate run for each.
+
+Download the run's `terraform-to-avm-private-RUN_ID-ATTEMPT` artifact and read
+`summary.md` and `repair-manifest.json`. After reviewing the proposals, run again
+with `mode=repair`, `publish=false` to inspect `repair.patch`. Set
+`mode=repair`, `publish=true` when you want a draft PR. Report-only and no-change
+runs do not create PRs.
+
+## Use locally or in another CI system
+
+Use **Python 3.12 and Git**; there are no pip dependencies. Install Terraform
+**1.9.8** to match Actions' static checks. Initialization needs access to
+provider/module downloads or configured mirrors; backend-free is not offline.
+No Azure login is required.
+
+Clone this repository separately from your consumer, check out a reviewed
+factory commit, then run from the factory directory:
 
 ```sh
-TERRAFORM_TO_AVM_INTEGRATION=1 \
-  python -m unittest discover -s tests -p 'test_integration*.py' -v
+git clone https://github.com/ChrisSidebotham/Terraform-2-AVM.git
+cd Terraform-2-AVM
+git checkout YOUR_REVIEWED_FACTORY_SHA
+python -m terraform_to_avm run \
+  --repository /absolute/consumer \
+  --config /absolute/consumer/avm.json \
+  --root infra/dev \
+  --mode report \
+  --output /absolute/new-private-report
 ```
 
-The matching Actions workflow is `terraform-integration.yml`. These static tests
-are not cloud validation.
+The consumer must be a **clean, committed Git checkout**, including `avm.json`.
+Use absolute filesystem paths and a new/empty output directory **outside** the
+consumer. Root/file names use plain letters, digits, `_`, `-`, and `.`; symlinks,
+submodules, selected `.tf.json` configurations, and uncommitted/untracked files
+are rejected.
 
-## End-to-end example
+Change to `--mode repair` and choose a fresh output directory to generate a
+patch. Review it before applying it yourself or publishing it through the
+[local publisher](docs/reference.md#end-to-end-example).
 
-This uses the committed [`examples/legacy/main.tf`](examples/legacy/main.tf).
-Replace `/absolute/factory` with this repository’s path. Use fresh output
-directories for subsequent runs.
+Other CI systems can invoke this same CLI and consume `result.json`; they must
+provide their own checkout, dependencies, and restricted artifact storage.
+The CLI does not publish a PR automatically.
 
-```sh
-FACTORY=/absolute/factory
-DEMO="$(mktemp -d)"
-mkdir -p "$DEMO/consumer/infra"
-cp "$FACTORY/examples/legacy/main.tf" "$DEMO/consumer/infra/main.tf"
-cp "$FACTORY/examples/config.json" "$DEMO/consumer/avm.json"
-git -C "$DEMO/consumer" init -q
-git -C "$DEMO/consumer" add infra/main.tf avm.json
-git -C "$DEMO/consumer" -c user.name=Example -c user.email=example@example.invalid \
-  commit -qm 'Existing AzureRM configuration'
-cd "$FACTORY"
-python -m terraform_to_avm run --repository "$DEMO/consumer" \
-  --config "$DEMO/consumer/avm.json" --root infra --mode repair \
-  --output "$DEMO/reports"
-# Nonzero is expected if Terraform is absent, downloads fail or import IDs are missing.
-cat "$DEMO/reports/summary.md"
-less "$DEMO/reports/repair.patch"
-git -C "$DEMO/consumer" apply --check "$DEMO/reports/repair.patch"
-```
+## Configuration
 
-This produces an AVM resource-group module and reviewable state-adoption
-instructions without editing the consumer or touching Azure. This module is
-AzAPI-backed: missing adoption IDs intentionally block deployment readiness.
+`avm.json` is a JSON object; all keys are optional and unknown keys are rejected.
+The [full example](examples/config.json) uses these defaults except for its
+narrow resource-group allow list:
 
-To **create a draft PR**, run the same repair command against a clean clone of
-your actual private consumer repository, using its current target-branch commit
-(not the temporary fixture above), then:
+| Key | Default | Meaning |
+|---|---|---|
+| `schema_version` | `1` | Configuration schema; must be integer `1` |
+| `allow` | `[]` | Resource types to consider; empty means all engine-supported types |
+| `exclude` | `[]` | Resource types to skip; must not overlap `allow` |
+| `include_heuristic` | `false` | Opt into heuristic matching; requires extra review |
+| `bump_providers` | `false` | Opt into provider-major constraint widening |
+| `timeout_seconds` | `300` | Per-subprocess timeout, integer `1..1800` |
 
-```sh
-# Supply a token securely in the environment; do not put it in config or source.
-python -m terraform_to_avm.publish --bundle /absolute/private-reports \
-  --repository YOUR_ORG/YOUR_REPO --base-branch main
-```
+## Read the results
 
-Manual configuration still required: factory SHA/caller, private Actions artifact
-access, GitHub token/policy, Terraform executable/network or mirrors, review of all
-findings, exact resource IDs and migration destinations. An authorized operator
-must separately arrange state backups, state-aware authenticated assessment and
-cloud validation. Neither the patch nor the draft PR authorizes deployment.
+| File | What to use it for |
+|---|---|
+| `summary.md` | Human-readable findings and gate results |
+| `repair-manifest.json` | Proposed conversions, affected files, blockers, and state transitions |
+| `result.json` | Machine-readable stages, changed files, provenance, and validation status |
+| `repair.patch`, `changes.json` | Proposed code changes from a repair with changes |
+| `private/` | Raw diagnostics and engine reports |
+
+A nonzero exit can still leave useful reports and a repair patch. Static
+validation failures and unresolved migration TODOs need investigation; a failed
+run is not necessarily a failure to generate code. Read the individual gates.
+A reviewable draft PR can exist while deployment remains blocked.
+
+**Neither a patch nor passing static checks means the infrastructure is safe
+to deploy.** Live-plan status remains `not_assessed` and deployment readiness
+remains `blocked`. Review state-adoption instructions, exact resource IDs,
+provider/lockfile changes, and all findings before separately arranging
+state-aware assessment and deployment.
+
+## Common setup problems
+
+| Symptom | What to check |
+|---|---|
+| Public-consumer rejection | Use a private consumer for the reusable workflow; use the CLI/demo for public repositories |
+| Factory release cannot be verified | Both full SHA pins must match; retain `actions: read` and use a manual branch dispatch |
+| Terraform init fails | Check provider/module network access or mirrors; Azure credentials are not required |
+| No draft PR | Use repair + publish, check there are changes, and enable Actions PR creation |
+| PR exists but CI did not start | `GITHUB_TOKEN`-created PRs usually do not trigger downstream workflows; an authorized maintainer must arrange checks |
+| Publishing after the base branch changed fails | Review/archive the previous draft and remove its branch before regenerating; human changes are not force-pushed |
+
+**Keep bundles private:** they may contain Terraform source and literal secrets.
+Actions artifacts expire after **three days**. Do not copy raw reports into public
+logs or issues.
+
+## Further reading and licensing
+
+The [operational reference](docs/reference.md) covers the exact safety contract,
+validation stages, automated engine-update review, local publishing, and tests.
+The [demo guide](examples/demo/README.md) provides a complete synthetic rehearsal.
+
+This repository retains its [MIT license](LICENSE). The vendored engine's
+[provenance](vendor/avmigrate/provenance.json) records a separate, unresolved
+upstream licensing limitation: confirm redistribution permission before a
+release. The repository license is not asserted to relicense that engine; see
+the [provenance and licensing details](docs/reference.md#engine-provenance-and-licensing).
