@@ -162,7 +162,7 @@ same-repository demonstration.
 | Symptom | Guidance |
 |---|---|
 | Run stops at public-output consent | Confirm the selected source is safe and tick `acknowledge_public_output` |
-| No draft PR | Check conversion diagnostics and Actions PR permissions |
+| Draft branch exists but no draft PR; publisher returns HTTP 403 | In **Settings > Actions > General**, enable **Allow GitHub Actions to create and approve pull requests**; confirm the publisher job has `pull-requests: write` and no organization policy blocks it. The publisher preserves its branch; rerun the same workflow after enabling the setting. |
 | Publisher says base advanced | Dispatch again from the current branch; do not reuse an old bundle |
 | Existing draft is human-edited or closed | Review/archive it and remove its presentation branch before regenerating; human changes are never force-pushed |
 | `init` fails | Provider/module downloads need network or mirrors; no Azure credentials are needed |

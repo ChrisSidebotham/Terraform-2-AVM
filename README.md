@@ -253,7 +253,7 @@ state-aware assessment and deployment.
 | Public-consumer rejection | Use a private consumer for the reusable workflow; use the CLI/demo for public repositories |
 | Factory release cannot be verified | Both full SHA pins must match; retain `actions: read` and use a manual branch dispatch |
 | Terraform init fails | Check provider/module network access or mirrors; Azure credentials are not required |
-| No draft PR | Use repair + publish, check there are changes, and enable Actions PR creation |
+| Draft branch exists but no draft PR; publisher returns HTTP 403 | In **Settings > Actions > General**, enable **Allow GitHub Actions to create and approve pull requests**; confirm the publisher job has `pull-requests: write` and no organization policy blocks it. The publisher preserves its branch; rerun the same workflow after enabling the setting. |
 | PR exists but CI did not start | `GITHUB_TOKEN`-created PRs usually do not trigger downstream workflows; an authorized maintainer must arrange checks |
 | Publishing after the base branch changed fails | Review/archive the previous draft and remove its branch before regenerating; human changes are not force-pushed |
 
