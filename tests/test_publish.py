@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import unittest
 from unittest import mock
+import urllib.error
 import urllib.parse
 import uuid
 
@@ -601,6 +602,23 @@ class PublishTests(unittest.TestCase):
             request = build.return_value.open.call_args.args[0]
             self.assertEqual(request.full_url, "https://api.github.com/repos/owner/repo/git/ref/heads/main")
             self.assertEqual(request.get_header("Authorization"), "Bearer " + api.token)
+
+    def test_pull_request_403_explains_actions_repository_setting(self):
+        with mock.patch("urllib.request.build_opener") as build:
+            api = GitHubAPI("secret-test-token")
+            build.return_value.open.side_effect = urllib.error.HTTPError(
+                "https://api.github.com/repos/owner/repo/pulls",
+                403,
+                "Forbidden",
+                {},
+                None,
+            )
+            with self.assertRaisesRegex(
+                PublishError, "Allow GitHub Actions to create and approve pull requests"
+            ) as raised:
+                api.request("POST", "/repos/owner/repo/pulls", {"title": "safe"})
+            self.assertEqual(raised.exception.status, 403)
+            self.assertNotIn("secret-test-token", str(raised.exception))
 
 
 if __name__ == "__main__":

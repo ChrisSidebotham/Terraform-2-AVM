@@ -49,9 +49,21 @@ class PublishError(Exception):
 
 
 class APIError(PublishError):
-    def __init__(self, status):
+    def __init__(self, status, method=None, path=None):
         self.status = status
-        super().__init__("GitHub REST request failed; check token permissions and repository access.")
+        if status == 403 and method == "POST" and path.rstrip("/").endswith("/pulls"):
+            message = (
+                "GitHub refused draft PR creation (HTTP 403). In repository Settings > Actions > "
+                "General, enable 'Allow GitHub Actions to create and approve pull requests'; "
+                "also verify this job has pull-requests: write and no organization policy blocks it. "
+                "The publisher branch was preserved."
+            )
+        else:
+            message = (
+                f"GitHub REST request failed with HTTP {status}; "
+                "check token permissions and repository access."
+            )
+        super().__init__(message)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -92,7 +104,7 @@ class GitHubAPI:
                 raise PublishError("GitHub REST response exceeded the safety limit.")
             return json.loads(body)
         except urllib.error.HTTPError as error:
-            raise APIError(error.code) from None
+            raise APIError(error.code, method, path) from None
         except (urllib.error.URLError, OSError, ValueError):
             raise PublishError("GitHub REST request failed; retry after checking connectivity.") from None
 
