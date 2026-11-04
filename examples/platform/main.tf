@@ -20,8 +20,13 @@ locals {
   }
 }
 
-resource "azurerm_resource_group" "platform" {
-  name     = "demo-platform-rg"
-  location = "uksouth"
-  tags     = local.tags
+# migrated by avmigrate from azurerm_resource_group.platform
+module "platform" {
+  source  = "Azure/avm-res-resources-resourcegroup/azurerm"
+  version = "0.4.0"
+
+  name             = "demo-platform-rg"
+  location         = "uksouth"
+  tags             = local.tags
+  enable_telemetry = false
 }

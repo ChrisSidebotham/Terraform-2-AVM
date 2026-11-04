@@ -1,15 +1,15 @@
 output "resource_group_id" {
-  value = azurerm_resource_group.platform.id
+  value = module.platform.resource_id
 }
 
 output "virtual_network_id" {
-  value = azurerm_virtual_network.platform.id
+  value = module.virtual_network_platform.resource_id
 }
 
 output "storage_account_id" {
-  value = azurerm_storage_account.application.id
+  value = module.storage_account_application.resource_id
 }
 
 output "log_analytics_workspace_id" {
-  value = azurerm_log_analytics_workspace.platform.id
+  value = module.log_analytics_workspace_platform.resource_id
 }
