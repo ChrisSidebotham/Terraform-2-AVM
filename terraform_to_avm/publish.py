@@ -27,6 +27,7 @@ MAX_TOTAL_BYTES = 4 * MAX_FILE_BYTES
 MAX_JSON_BYTES = 8 * MAX_FILE_BYTES
 SPECIAL_FILES = {
     ".terraform.lock.hcl",
+    "AVM-MIGRATION-REPORT.md",
     "AVM-MIGRATION-CHANGELOG.md",
     "avm-state-migration.sh",
     "avm-state-import.tf.disabled",
@@ -483,9 +484,17 @@ class _Repository:
             raise PublishError("Existing repair branch has no publisher ownership; review and remove it manually.")
 
 
-def publish(bundle_path, repository, base_branch, api=None):
+def publish(bundle_path, repository, base_branch, api=None, include_report=False):
     """Publish a validated bundle; injected ``api.request(method, path, data)`` is mockable."""
     source, root, files, result = _load_bundle(bundle_path)
+    if include_report and result.get("mode") not in ("report", "repair"):
+        raise PublishError("Presentation publication requires report or repair mode.")
+    if include_report:
+        report_path = ("" if root == "." else root + "/") + "AVM-MIGRATION-REPORT.md"
+        if not any(item["path"] == report_path and isinstance(item["content"], str) for item in files):
+            raise PublishError("Presentation publication requires a generated report.")
+        if result["mode"] == "report" and any(item["path"] != report_path for item in files):
+            raise PublishError("Report-only publication cannot include Terraform or auxiliary changes.")
     if not isinstance(repository, str) or not re.fullmatch(
         r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}", repository
     ) or repository.split("/")[-1] in {".", ".."}:
@@ -497,7 +506,13 @@ def publish(bundle_path, repository, base_branch, api=None):
         or "//" in base_branch
     ):
         raise PublishError("Base branch is not a safe Git branch name.")
-    if not any(item["path"].endswith(".tf") for item in files):
+    def meaningful(item):
+        return item["path"].endswith(".tf") or (
+            include_report and item["path"].rsplit("/", 1)[-1] == "AVM-MIGRATION-REPORT.md"
+            and item["content"] is not None
+        )
+
+    if not any(meaningful(item) for item in files):
         return _finish(bundle_path, result, {"status": "no_changes"})
     repo = _Repository(api if api is not None else GitHubAPI(os.environ.get("GITHUB_TOKEN")), repository, root)
     if repo.ref(base_branch) != source:
@@ -520,11 +535,15 @@ def publish(bundle_path, repository, base_branch, api=None):
         desired.append(_record(item["path"], old_hash, _bytes_hash(new_bytes) if new_bytes is not None else None,
                                old["mode"] if old else None, mode if new_bytes is not None else None))
         effective.append((item, mode))
-    if not any(item["path"].endswith(".tf") for item, _ in effective):
+    if not any(meaningful(item) for item, _ in effective):
         return _finish(bundle_path, result, {"status": "no_changes"})
     desired.sort(key=lambda record: record["path"])
     root_hash = hashlib.sha256(root.encode("utf-8")).hexdigest()
     branch = "terraform-to-avm/" + root_hash
+    if include_report:
+        # Presentation reports and repairs must not share drafts or collide with
+        # the production publisher; each source revision gets its own evidence.
+        branch = f"terraform-to-avm/presentation/{result['mode']}/{source}/{root_hash}"
     head = repo.ref(branch, optional=True)
     if head is not None:
         repo.verify_branch(head, source, root_hash)
@@ -581,6 +600,15 @@ def publish(bundle_path, repository, base_branch, api=None):
         except APIError:
             raise PublishError("Repair branch changed concurrently; review it and rerun. No force update was attempted.") from None
     payload = {"title": "Draft: Terraform to AVM migration", "body": _pr_body(result, effective, source)}
+    if include_report:
+        payload["title"] = ("Draft: Terraform to AVM report" if result.get("mode") == "report"
+                            else "Draft: Terraform to AVM repair")
+        payload["body"] += (
+            "\n\n### Full report\n"
+            "Read `AVM-MIGRATION-REPORT.md` in the selected Terraform folder in this PR "
+            "for the generated summary and conversion manifest. "
+            "Report-only runs do not modify Terraform. Repair runs may include unresolved blockers."
+        )
     if pr is None:
         payload.update({"head": branch, "base": base_branch, "draft": True})
         pr = repo.call("POST", "/pulls", payload)
@@ -599,9 +627,12 @@ def main(argv=None):
     parser.add_argument("--bundle", required=True)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--base-branch", required=True)
+    parser.add_argument("--include-report", action="store_true",
+                        help="Allow a presentation report to create a draft without Terraform changes.")
     args = parser.parse_args(argv)
     try:
-        print(json.dumps(publish(args.bundle, args.repository, args.base_branch), sort_keys=True))
+        print(json.dumps(publish(args.bundle, args.repository, args.base_branch,
+                                 include_report=args.include_report), sort_keys=True))
     except PublishError as error:
         print(str(error), file=sys.stderr)
         return 1

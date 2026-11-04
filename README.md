@@ -17,7 +17,7 @@ arbitrary `azapi_resource` / `azapi_update_resource` inputs are not supported.
 
 | Your goal | Use |
 |---|---|
-| Try it with synthetic Terraform, without an Azure account | [Presentation demo](examples/demo/README.md) |
+| Run on a folder in this repo and open a report or repair draft PR | [Presentation demo](examples/demo/README.md) |
 | Add report/repair runs to another repository | [Reusable workflow quick start](#use-from-another-github-repository) |
 | Run locally, or integrate with a different CI system | [Python CLI](#use-locally-or-in-another-ci-system) |
 | Understand validation, provenance, licensing, or engine updates | [Operational reference](docs/reference.md) |
@@ -31,6 +31,15 @@ consumer checkout: repairs are generated in a disposable snapshot.
 | `report` | Inventory, proposed conversions, findings, and required state transitions; no repair patch |
 | `repair` | The report plus a patch and static validation of the proposed code |
 | `repair` with `publish: true` in Actions | A draft PR when there are reviewable changes |
+
+The [presentation workflow](examples/demo/README.md) is a separate,
+same-repository flow: select a committed folder (default `examples/platform`) and
+`report` or `repair`. Both modes automatically open a draft containing a generated
+report; repair also includes proposed fixes. Public output requires explicit
+acknowledgement. The private-consumer reusable workflow below is unchanged.
+The default platform has seven resources spanning networking, storage and
+monitoring, with cross-file references, subnet absorption and manual-review
+findings. This expanded manual demo uses Terraform 1.13.5.
 
 ## Use from another GitHub repository
 

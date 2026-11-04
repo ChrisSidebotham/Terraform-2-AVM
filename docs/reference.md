@@ -12,6 +12,8 @@ supported; unsupported resources are reported and left unchanged.
 
 Python 3.12 and Git are sufficient for conversion and the offline test suite.
 Terraform 1.9.8 is pinned in Actions for static gates. There are no pip dependencies.
+The expanded same-repository presentation instead pins Terraform 1.13.5 for
+compatibility with the storage module's minimum and module validation expressions.
 
 ## Safety contract
 
@@ -186,7 +188,11 @@ avmigrate is the first named fixer behind a small adapter, not a plugin framewor
    Identical reruns add no commits. Human edits, unrelated branches, non-draft PRs
    or stale bases stop publication with an explanation; no force pushes occur.
    Review/archive the existing PR and remove its branch before regenerating against
-   a changed base. A no-change/report-only run creates no PR.
+   a changed base. A no-change/report-only run creates no PR by default.
+   The same-repository presentation explicitly opts into report publication with
+   `--include-report`: a generated `AVM-MIGRATION-REPORT.md` can create a draft
+   without Terraform changes. Presentation branches are isolated by mode, source
+   revision and root hash; production publication retains its existing policy.
 
 `result.json` schema version 1 includes `run_id`, `source_commit`, `selected_root`,
 engine provenance, `stages`, `changed_files`, severity-tagged `findings`,
@@ -207,8 +213,13 @@ publisher. Review source diffs for pre-existing literal secrets before sharing.
 
 For presentation/rehearsal with public synthetic data, see the
 [demo guide](../examples/demo/README.md) and
-`.github/workflows/terraform-to-avm-demo.yml`. This separate demo constructs a
-disposable fixture; it does not relax the private-consumer requirement below.
+`.github/workflows/terraform-to-avm-demo.yml`. Manual runs select a committed
+folder in this repository and automatically publish report or repair drafts.
+Public repositories require explicit acknowledgement of public source/report
+visibility. Conversion runs read-only; a separate write-enabled job validates and
+publishes the bundle without running Terraform or consumer scripts. Automatic
+push/PR rehearsals still use disposable fixtures and never publish.
+This does not relax the reusable workflow's private-consumer requirement below.
 
 The reusable workflow is
 `.github/workflows/terraform-to-avm.yml`; a minimal manual caller is

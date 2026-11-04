@@ -389,6 +389,69 @@ class PublishTests(unittest.TestCase):
         self.write_bundle(root=".")
         self.assertEqual(self.run_publish()["status"], "published")
 
+    def test_presentation_report_requires_explicit_opt_in(self):
+        self.write_bundle(files=[{
+            "path": "infra/AVM-MIGRATION-REPORT.md",
+            "before_sha256": None, "content": "# Report\n",
+        }])
+        self.result["mode"] = "report"
+        self.save()
+        self.assertEqual(self.run_publish(), {"status": "no_changes"})
+        self.assertEqual(self.api.calls, [])
+        first = publish(str(self.directory), "owner/repo", "main", self.api, include_report=True)
+        self.assertEqual(first["status"], "published")
+        self.assertTrue(self.api.pulls[0]["draft"])
+        self.assertEqual(self.api.pulls[0]["title"], "Draft: Terraform to AVM report")
+        self.assertIn("AVM-MIGRATION-REPORT.md", self.api.pulls[0]["body"])
+        flat = self.api.flatten(self.api.commits[self.api.refs[first["branch"]]]["tree"]["sha"])
+        self.assertEqual(self.api.blobs[flat["infra/main.tf"][1]], b"old\n")
+        self.assertIn("infra/AVM-MIGRATION-REPORT.md", flat)
+        again = publish(str(self.directory), "owner/repo", "main", self.api, include_report=True)
+        self.assertEqual(again["status"], "unchanged")
+        self.assertEqual(len(self.api.pulls), 1)
+
+    def test_presentation_repair_includes_report_and_tf_changes(self):
+        self.changes["files"].append({
+            "path": "infra/AVM-MIGRATION-REPORT.md", "before_sha256": None, "content": "# Repair\n",
+        })
+        self.result["mode"] = "repair"
+        self.result["changed_files"].append("infra/AVM-MIGRATION-REPORT.md")
+        self.save()
+        outcome = publish(str(self.directory), "owner/repo", "main", self.api, include_report=True)
+        self.assertEqual(outcome["status"], "published")
+        self.assertEqual(self.api.pulls[0]["title"], "Draft: Terraform to AVM repair")
+        flat = self.api.flatten(self.api.commits[self.api.refs[outcome["branch"]]]["tree"]["sha"])
+        self.assertEqual(self.api.blobs[flat["infra/main.tf"][1]], b"new\n")
+        self.assertIn("infra/AVM-MIGRATION-REPORT.md", flat)
+
+    def test_presentation_cannot_use_an_unsafe_mode_as_a_branch(self):
+        self.result["mode"] = "../../unsafe"
+        self.save()
+        with self.assertRaisesRegex(PublishError, "mode"):
+            publish(str(self.directory), "owner/repo", "main", self.api, include_report=True)
+        self.assertEqual(self.api.calls, [])
+
+    def test_presentation_opt_in_requires_a_report(self):
+        self.write_bundle(files=[{
+            "path": "infra/AVM-MIGRATION-CHANGELOG.md", "before_sha256": None, "content": "notes",
+        }])
+        self.result["mode"] = "report"
+        self.save()
+        with self.assertRaisesRegex(PublishError, "generated report"):
+            publish(str(self.directory), "owner/repo", "main", self.api, include_report=True)
+        self.assertEqual(self.api.calls, [])
+
+    def test_presentation_report_cannot_modify_terraform(self):
+        self.changes["files"].append({
+            "path": "infra/AVM-MIGRATION-REPORT.md", "before_sha256": None, "content": "# Report\n",
+        })
+        self.result["changed_files"].append("infra/AVM-MIGRATION-REPORT.md")
+        self.result["mode"] = "report"
+        self.save()
+        with self.assertRaisesRegex(PublishError, "Report-only"):
+            publish(str(self.directory), "owner/repo", "main", self.api, include_report=True)
+        self.assertEqual(self.api.calls, [])
+
     def test_all_auxiliary_files_and_deletion_supported(self):
         self.api = MemoryGitHub({"infra/main.tf": b"old\n", "infra/delete.tf": b"remove\n"})
         files = [{"path": "infra/main.tf", "before_sha256": hashlib.sha256(b"old\n").hexdigest(),
