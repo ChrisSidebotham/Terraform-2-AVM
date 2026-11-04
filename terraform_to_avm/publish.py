@@ -542,8 +542,10 @@ def publish(bundle_path, repository, base_branch, api=None, include_report=False
     branch = "terraform-to-avm/" + root_hash
     if include_report:
         # Presentation reports and repairs must not share drafts or collide with
-        # the production publisher; each source revision gets its own evidence.
-        branch = f"terraform-to-avm/presentation/{result['mode']}/{source}/{root_hash}"
+        # the production publisher; each target, source revision, and root gets
+        # its own evidence.
+        base_hash = hashlib.sha256(base_branch.encode("utf-8")).hexdigest()
+        branch = f"terraform-to-avm/presentation/{result['mode']}/{source}/{base_hash}/{root_hash}"
     head = repo.ref(branch, optional=True)
     if head is not None:
         repo.verify_branch(head, source, root_hash)

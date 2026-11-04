@@ -424,6 +424,23 @@ class PublishTests(unittest.TestCase):
         self.assertEqual(self.api.blobs[flat["infra/main.tf"][1]], b"new\n")
         self.assertIn("infra/AVM-MIGRATION-REPORT.md", flat)
 
+    def test_presentation_branches_are_scoped_to_the_target_branch(self):
+        self.changes["files"] = [{
+            "path": "infra/AVM-MIGRATION-REPORT.md", "before_sha256": None, "content": "# Report\n",
+        }]
+        self.result["mode"] = "report"
+        self.result["changed_files"] = ["infra/AVM-MIGRATION-REPORT.md"]
+        self.save()
+        first = publish(str(self.directory), "owner/repo", "main", self.api, include_report=True)
+
+        other_api = MemoryGitHub()
+        other_api.refs["other"] = other_api.source
+        second = publish(str(self.directory), "owner/repo", "other", other_api, include_report=True)
+
+        self.assertNotEqual(first["branch"], second["branch"])
+        self.assertEqual(self.api.pulls[0]["base"]["ref"], "main")
+        self.assertEqual(other_api.pulls[0]["base"]["ref"], "other")
+
     def test_presentation_cannot_use_an_unsafe_mode_as_a_branch(self):
         self.result["mode"] = "../../unsafe"
         self.save()
