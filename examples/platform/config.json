@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "allow": [
+    "azurerm_resource_group",
+    "azurerm_virtual_network",
+    "azurerm_subnet",
+    "azurerm_network_security_group",
+    "azurerm_network_security_rule",
+    "azurerm_storage_account",
+    "azurerm_log_analytics_workspace"
+  ],
+  "exclude": [],
+  "include_heuristic": false,
+  "bump_providers": false,
+  "timeout_seconds": 300
+}

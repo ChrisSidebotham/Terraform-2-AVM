@@ -1,91 +1,147 @@
-# Presentation demo: Terraform to AVM
+# Presentation demo: folder to draft PR
 
-This is **code repair, not infrastructure deployment**. All demo inputs are
-synthetic: three resource groups in a selected `infra` root and another resource
-group in nested `infra/production`. No Azure account, subscription, state, or
-credentials are used. Real Terraform 1.9.8 downloads public modules/providers for
-backend-free initialization and validation.
+Run the converter against a **committed folder in this repository**, then see its
+output in a draft pull request. The default folder, `examples/platform`, contains
+seven synthetic resources across networking, storage and monitoring. No Azure
+account, state, or credentials are needed. Terraform 1.13.5 downloads public
+modules/providers for backend-free initialization and validation.
 
-## Verified rehearsal: 3 November 2026
+| Area | Source resources | Expected proposal |
+|---|---|---|
+| Foundation | Resource group | AVM resource-group module |
+| Networking | Virtual network and subnet | AVM virtual-network module with the subnet folded into its `subnets` input |
+| Network security | Network security group and HTTPS rule | AVM security-group module; standalone rule remains for manual review |
+| Storage | Storage account | AVM storage-account module |
+| Monitoring | Log Analytics workspace | AVM workspace module |
 
-The [recorded demo run](https://github.com/ChrisSidebotham/Terraform-2-AVM/actions/runs/41655682111)
-completed successfully, and all three artifacts were downloaded and inspected.
-The [independent push run](https://github.com/ChrisSidebotham/Terraform-2-AVM/actions/runs/41655669615)
-also passed. These runs tested branch commit
-`545af64b0008887e32052cf0658284fe6b2040dc`; the PR run checked out GitHub's
-synthetic merge commit `12e70adafcd6f6a68f7e014519d18587554f5c2a`.
+The configuration is split across five Terraform files, including outputs that
+reference resource IDs. The repair demonstrates cross-file reference rewriting,
+five module conversions, one absorbed resource, and one unconverted resource.
+Shared tags and settings such as address prefixes, TLS and retention make the
+diff meaningful. Names and addresses are synthetic; this is not a deployable
+reference architecture (for example, no subnet-to-NSG association is included).
 
-| Scenario | Proposed conversions | Changed files | Converter exit | Verified behavior |
-|---|---|---|---|---|
-| Report | 3 | 0 | 0 | Source unchanged; plan and adoption requirements preserved |
-| Repair | 3 | 6 | 1 | Three AVM modules; applicable patch; repeated files/patch identical |
-| No-change | 0 | 0 | 1 | Previously accepted code repair generates no further patch |
+**This proposes code, not infrastructure deployment.** No apply, import,
+state-modification commands, generated migration scripts, or automatic merge run.
 
-All three demo jobs passed their assertions. Both repair scenarios passed real
-Terraform formatting, initialization, and validation; migration TODO checks
-remained failed as intended. No deployment or live publisher was exercised.
-The recorded run's artifacts expire on **10 November 2026 at approximately
-14:39 UTC**. See [evidence.json](evidence.json) for artifact IDs and patch hashes.
+## Run it in GitHub Actions
 
-The [real Terraform integration run](https://github.com/ChrisSidebotham/Terraform-2-AVM/actions/runs/41652155241)
-also passed on `main`. The
-[linked manual workflow run](https://github.com/ChrisSidebotham/Terraform-2-AVM/actions/runs/41652150431)
-correctly rejected the public consumer before checkout and uploaded **zero**
-artifacts. A private demo repository could not be created by this session:
-the repository-creation client was unavailable and the installation API token
-returned HTTP 403. This is a session-access limitation, not a claim about the
-maintainer's own GitHub permissions.
+1. Commit the Terraform folder and configuration to the branch you want to use.
+   The existing `examples/platform` and `examples/platform/config.json` work out
+   of the box. The narrower config in `examples/config.json` only selects resource
+   groups; do not use it for the full platform demo.
+2. Enable **Settings > Actions > General > Allow GitHub Actions to create and
+   approve pull requests**. Organization policy can restrict this setting.
+3. Open **Actions > Terraform to AVM presentation demo > Run workflow** and
+   select that branch.
+4. Choose `root=examples/platform`, `config_path=examples/platform/config.json`, and either
+   `mode=report` or `mode=repair`. In this public repository, tick
+   `acknowledge_public_output` after confirming the source and generated reports
+   are safe to publish.
+5. Open **Open report or repair draft PR > Summary** for the resulting PR link.
+   Inspect the PR's **Files changed** tab and the conversion artifact.
 
-## What to show in five minutes
+| Mode | Draft PR contents |
+|---|---|
+| `report` | `AVM-MIGRATION-REPORT.md` in the selected folder, containing the summary, conversion manifest and full gate results; Terraform is unchanged |
+| `repair` | The report plus proposed AVM modules, lockfile changes and migration instructions when generated |
 
-1. Open **Actions > Terraform to AVM synthetic demo** and a successful run. Its
-   three jobs show report, repair, and no-change behavior.
-2. Open **Synthetic report > Summary**. Three conversions are proposed, no files
-   are changed, and converted-code validation is intentionally not assessed.
-   Download its artifact and open `repair-manifest.json` for the plan.
-3. Open **Synthetic repair** and download its artifact. Compare `source-before.tf`
-   and `source-after.tf`: three AzureRM resource groups become pinned AVM modules.
-   Open `repair.patch` and `changes.json` for the complete reviewable proposal.
-   The job verifies patch applicability and identical output on a repeated repair.
-4. Open `result.json`: real formatting, initialization, and validation passed.
-   The adoption/migration TODO check deliberately fails because resource IDs
-   require human review. Live plan remains `not_assessed`; deployment readiness
-   remains `blocked`. The demo job passes because it verifies these exact outcomes,
-   not because it hides or ignores converter failures.
-5. Open **Synthetic no-change**. This job first accepts a repair into its
-   disposable fixture, then runs the converter again. It proposes zero further
-   conversions and creates no patch. Existing migration TODOs still block
-   deployment. Every scenario verifies that conversion leaves its consumer
-   checkout and nested production root untouched.
+Every successful manual conversion goes on to publication. There is no separate
+`publish` switch. Even a repair with no Terraform changes produces a report PR,
+so the result is visible. Report and repair use separate branches; identical
+reruns of the same source revision update the same draft without extra commits.
+A new source revision gets a new draft rather than overwriting old evidence.
 
-Use the phrase: **"We automate the proposed code change, preserve evidence, and
-stop at human review. Green demo assertions are not a green deployment gate."**
-
-## Rehearsal and evidence
-
-On the default branch, use **Run workflow** with no inputs. Before merge, the
-`demo/presentation-evidence` branch runs automatically when its demo code or
-workflow changes; pull requests touching those files run it too.
+Only the selected folder's immediate `.tf` files are converted; nested
+environments are not scanned. `root=.` selects the repository root.
+Use your own folder and config instead of the defaults if desired. Config must
+be inside the repository. The checkout is never edited in place.
 
 ```sh
+# Report-only draft PR against main.
 gh workflow run terraform-to-avm-demo.yml \
-  --repo ChrisSidebotham/Terraform-2-AVM --ref main
-gh run list --repo ChrisSidebotham/Terraform-2-AVM \
-  --workflow terraform-to-avm-demo.yml --limit 5
-# Replace RUN_ID with the successful run chosen above.
-gh run download RUN_ID --repo ChrisSidebotham/Terraform-2-AVM \
-  --dir presentation-evidence
+  --repo ChrisSidebotham/Terraform-2-AVM --ref main \
+  -f root=examples/platform -f config_path=examples/platform/config.json \
+  -f mode=report -f acknowledge_public_output=true
+
+# Repair draft PR with the full report and proposed fixes.
+gh workflow run terraform-to-avm-demo.yml \
+  --repo ChrisSidebotham/Terraform-2-AVM --ref main \
+  -f root=examples/platform -f config_path=examples/platform/config.json \
+  -f mode=repair -f acknowledge_public_output=true
 ```
 
-Artifacts are named `synthetic-demo-{report,repair,no-change}-RUN_ID-ATTEMPT`.
-Each includes machine-readable `demo-evidence.json`, readable `demo-summary.md`,
-runner results, and available synthetic diagnostics. Repair also includes its
-patch and `repeat-changes.json`. Keep an offline copy before the presentation;
-these artifacts expire after **seven days**, unlike normal private workflow
-bundles, which expire after three days. No hidden lockfile needs to be downloaded
-separately: its proposed contents are represented in `changes.json` and the patch.
+Artifacts are named `presentation-MODE-RUN_ID-ATTEMPT` and
+`presentation-publication-RUN_ID-ATTEMPT`, and expire after **three days**.
+The first contains the report bundle, patch when available, and diagnostics.
+The second records the final promotion result. The full report is also
+committed in the PR and is not dependent on artifact retention.
 
-Local rehearsal, from this repository with Python 3.12, Git, and Terraform 1.9.8:
+## What to show
+
+Start with a report PR: inspect its conversion manifest, affected files,
+findings, and state-adoption requirements. Then run repair against the same
+source branch and compare the five proposed AVM modules to the legacy resources.
+Inspect `network.tf` for subnet absorption and the retained security rule, and
+`outputs.tf` for rewritten module references. State review includes compatible
+address moves, cross-type adoption, and an ambiguous absorbed-subnet destination.
+Open the report to see which validation gates passed and which remain blocked.
+
+Resource IDs and migration TODOs need human review. The converter may return
+`1` while still producing a useful repair; the presentation records that exit
+code and preserves failed gates in the report rather than discarding the draft.
+Conversion/staging failures that prevent a reviewable bundle fail the workflow
+and preserve diagnostics without publishing a PR.
+
+**Publication success is not validation success.** Live plan remains
+`not_assessed`; deployment readiness remains `blocked`. Bot-created PRs may not
+trigger downstream CI automatically. Do not merge or deploy during the demo.
+
+## Run against this checkout locally
+
+Use Python 3.12, Git, Terraform 1.13.5, a **clean committed checkout**, and a fresh
+output directory outside this repository:
+
+```sh
+python -m examples.presentation \
+  --repository "$PWD" --config "$PWD/examples/platform/config.json" \
+  --root examples/platform --mode report --output /tmp/avm-folder-report
+
+python -m examples.presentation \
+  --repository "$PWD" --config "$PWD/examples/platform/config.json" \
+  --root examples/platform --mode repair --output /tmp/avm-folder-repair
+```
+
+Inspect `summary.md`, `repair-manifest.json`, `result.json`, and `changes.json`.
+The generated PR report is represented in `changes.json`; `repair.patch`
+contains only the converter's proposed code changes, not the presentation report.
+The command succeeds when a reviewable bundle is prepared, and prints the
+underlying converter exit code. It does not publish by itself.
+
+To publish the reviewed bundle locally, set `GITHUB_TOKEN` to a token with
+contents and pull-request write access, then run:
+
+```sh
+python -m terraform_to_avm.publish \
+  --bundle /tmp/avm-folder-repair \
+  --repository ChrisSidebotham/Terraform-2-AVM --base-branch main \
+  --include-report
+```
+
+The base branch must still match the bundle's source commit. Review the report
+and source for literal secrets before sharing. Public artifacts and PRs are
+public; the acknowledgement is not secret detection.
+
+## Keep the disposable rehearsal
+
+Automatic push/PR runs still exercise the original synthetic report, repair,
+and no-change scenarios without publishing anything. These use a disposable
+consumer, verify root isolation and repeatability, and assert known migration
+TODO failures. They do not operate on your selected folder.
+They retain the smaller `examples/demo` three-resource-group fixture and
+Terraform 1.9.8; the expanded manual presentation uses Terraform 1.13.5.
+The storage module requires Terraform 1.10 or later, and newer logical-expression
+evaluation avoids null-value errors in the pinned modules' validation expressions.
 
 ```sh
 python -m examples.demo --scenario report --output /tmp/avm-demo-report
@@ -93,57 +149,23 @@ python -m examples.demo --scenario repair --output /tmp/avm-demo-repair
 python -m examples.demo --scenario no-change --output /tmp/avm-demo-no-change
 ```
 
-Use fresh output paths. The script accepts no consumer/config/root path and
-constructs its own committed synthetic repository. Never adapt this public
-artifact workflow to upload real consumer source.
+Historical synthetic rehearsal results remain in [evidence.json](evidence.json).
+They predate folder-to-PR publication and do not demonstrate the new manual flow.
 
-## The linked manual workflow and draft PRs
+The reusable `terraform-to-avm.yml` workflow and its linked example retain their
+private-consumer privacy guard. Use the root README's pinned caller for another
+private repository; this presentation path is a separate, explicitly opted-in
+same-repository demonstration.
 
-`terraform-to-avm-example.yml` is deliberately **not** the public demo workflow.
-This factory repository is public; its manual example stops before checkout with
-`Sensitive report artifacts require a private consumer repository`. That is the
-expected privacy guard, not a conversion failure. Do not remove it or make the
-factory private just for a demo.
-
-For the full report > repair > draft PR demonstration, create a **private**
-consumer repository with committed Terraform and config, and copy the pinned
-caller from the root README. Pin the same reviewed factory commit SHA in both
-`uses` and `factory_ref`. Allow Actions to create pull requests in repository
-settings (organization policy can override this).
-
-| Input | Start with | Meaning |
-|---|---|---|
-| Branch | `main` | Must match `base_branch` in the caller |
-| `config_path` | `avm.json` | Committed, repository-relative JSON config |
-| `root` | `infra` | Only immediate `.tf` files; nested roots are excluded |
-| `mode` | `report` | Inspect proposals without generating a patch |
-| `publish` | `false` | Keep publication explicitly off initially |
-
-After review, use `mode=repair,publish=false` to inspect the patch, then
-`mode=repair,publish=true` to request a draft PR. A draft can be reviewable while
-state/adoption TODOs still block readiness. No PR is created for report/no-change
-runs. Do not merge or deploy during the presentation. Bot-created PRs may not
-trigger downstream CI automatically.
-
-The public synthetic demo exercises real conversion, validation, repeatability,
-and root isolation, **not the reusable workflow's private-consumer attestation or
-live draft-PR publisher**. Offline CI covers publisher behavior with mocked REST.
-Do not claim a live draft PR was demonstrated without actually running a private
-consumer.
-
-## Usability and troubleshooting
+## Troubleshooting
 
 | Symptom | Guidance |
 |---|---|
-| Linked workflow immediately red | Use a private consumer, or the synthetic demo for public presentation |
-| Converter exit code `1` but demo job green | Expected only when the asserted unresolved migration TODOs remain; inspect individual gates |
-| `init` fails | Provider/module downloads need network or mirrors; backend-free is not offline |
-| No-change setup or repeated repair fails | The job fails; seed diagnostics remain in the artifact, or repeat diagnostics under `repeat-failure/` |
-| Output path already exists | Choose a fresh local output directory |
-| Publication fails | Check Actions PR permissions, current base SHA, existing draft branch, and artifact availability |
-| Rerun after changing `main` fails publication | Review/archive the previous draft and remove its branch before regeneration; never force-push human changes |
-| "Run workflow" is missing | Merge the demo workflow to the default branch; use its already-running demo branch before merge |
-
-Keep logs/artifacts open in advance and use downloaded evidence if the network is
-unreliable. Do not run the dependency updater as presentation preparation: it
-fetches unreviewed upstream candidates and is separate from this pinned demo.
+| Run stops at public-output consent | Confirm the selected source is safe and tick `acknowledge_public_output` |
+| No draft PR | Check conversion diagnostics and Actions PR permissions |
+| Publisher says base advanced | Dispatch again from the current branch; do not reuse an old bundle |
+| Existing draft is human-edited or closed | Review/archive it and remove its presentation branch before regenerating; human changes are never force-pushed |
+| `init` fails | Provider/module downloads need network or mirrors; no Azure credentials are needed |
+| Converter exit `1`, publication succeeds | Inspect failed gates and adoption blockers; the PR is reviewable, not deployable |
+| Local run rejects checkout | Commit all source/config changes first and use an output directory outside the repo |
+| Workflow missing from Actions | Merge the workflow to the default branch before dispatching it |
